@@ -87,15 +87,15 @@ struct window_queue {
 //	Global var
 //---------------------------------------------
 
-struct window_queue* wq_head = NULL;
-struct window_queue* wq_tail = NULL;
+struct window_queue *wq_head = NULL;
+struct window_queue *wq_tail = NULL;
 int window_size;
 
 //---------------------------------------------
 //	Queue
 //---------------------------------------------
 
-void append(struct window_queue* wq_e) {
+void append(struct window_queue *wq_e) {
 	if(wq_head == NULL) {
 		wq_head = wq_e;
 		wq_tail = wq_e;	
@@ -106,7 +106,7 @@ void append(struct window_queue* wq_e) {
 }
 
 void pop() {
-	struct window_queue* temp = wq_head;
+	struct window_queue *temp = wq_head;
 	if(wq_head->next != NULL) {
 		wq_head = wq_head->next;		
 	} else {
@@ -206,12 +206,12 @@ void little_to_big_cnx(struct pkt_cnx *pkt) {
 	pkt->size_arq = htobe32(pkt->size_arq);
 }
 
-void big_to_little_ack(struct pkt_data *pkt) {
+void big_to_little_ack(struct pkt_ack *pkt) {
 	pkt->ipd = be32toh(pkt->ipd);	
 	pkt->ipo = be32toh(pkt->ipo);
 }
 
-void little_to_big_ack(struct pkt_data *pkt) {
+void little_to_big_ack(struct pkt_ack *pkt) {
 	pkt->ipd = htobe32(pkt->ipd);	
 	pkt->ipo = htobe32(pkt->ipo);
 }
@@ -229,13 +229,13 @@ int end_of_exec(const char *buf) {
 	}
 }
 
-void fill_server_info(struct sockaddr_in *sa_server, char* ip_buffer) {
+void fill_server_info(struct sockaddr_in *sa_server, char *ip_buffer) {
 	sa_server->sin_family = AF_INET;
 	sa_server->sin_port = htons(SOCK_PORT);
 	sa_server->sin_addr.s_addr = INADDR_ANY;//inet_addr(ip_buffer); //INADDR_ANY;
 }
 
-void fill_pkt_conexion_info(struct pkt_cnx *pkt_c, int flux, int file_size, char* ip_buffer) {
+void fill_pkt_conexion_info(struct pkt_cnx *pkt_c, int flux, int file_size, char *ip_buffer) {
 	pkt_c->ipd = INADDR_ANY; //inet_addr(ip_buffer);
 	pkt_c->ipo = IP_CLIENT;
 	pkt_c->type = 2;
@@ -250,12 +250,89 @@ void fill_pkt_conexion_info(struct pkt_cnx *pkt_c, int flux, int file_size, char
 	//crc(*pkt_c);
 }
 
+int fill_vet_addr(struct window_queue **vet) {
+	struct window_queue *wq_e = wq_head;
+	int ret;
+
+	for(int i = 0; i < window_size; i++) {
+		if(wq_e != NULL) {
+			vet[i] = wq_e;
+			wq_e = wq_e->next;
+			ret = i;
+		} else { vet[i] = NULL;}
+		printf("addr %d: %x\n", i, vet[i]);
+	}
+	return ret + 1;
+} 
+
+void pop_n(int n) {
+	for(int i = 0; i < n; i++) {
+		printf("popping data from queue\n");	
+		pop();
+	}
+}
+
+void go_back_n_client(int sock, struct sockaddr_in sa_server) {
+	struct sockaddr_in sa_client;
+	struct pkt_ack *pkt_a;
+	struct window_queue *vet_addr[window_size];
+	socklen_t sa_client_len = sizeof(sa_client);
+	ssize_t ssret;
+	int npop;
+
+	while(wq_head != NULL) {
+		npop = fill_vet_addr(&vet_addr);
+
+		pkt_a = malloc(sizeof(*pkt_a));
+		if (pkt_a == NULL) { err(1, "malloc ack");}
+		
+		bzero(&sa_client, sizeof(sa_client));
+		bzero(pkt_a, sizeof(*pkt_a));
+		
+		for(int i = 0; i < npop; i++) {
+			little_to_big_data(vet_addr[i]->self);
+			printf("send %d\n", i);
+			
+			ssret = sendto(sock, vet_addr[i]->self, sizeof(*vet_addr[i]->self), 0, (const struct sockaddr *)&sa_server, sizeof(sa_server));
+			if(ssret < 0) { err(1, "sendto");}
+			sleep(1);	
+		}
+
+		printf("waiting ack\n");
+		ssret = recvfrom(sock, pkt_a, sizeof(*pkt_a), 0, (struct sockaddr *)&sa_client, &sa_client_len);
+		if(ssret < 0) { err(1, "recvfrom");}
+
+		big_to_little_ack(pkt_a);
+
+		while(pkt_a->sequence != window_size) {
+			printf("retrasmiting\n");
+			for(int i = pkt_a->sequence; i < npop; i++) {
+				printf("resend %d\n", i);
+			
+				ssret = sendto(sock, vet_addr[i]->self, sizeof(*vet_addr[i]->self), 0, (const struct sockaddr *)&sa_server, sizeof(sa_server));
+				if(ssret < 0) { err(1, "sendto");}
+				sleep(1);
+		
+			}
+
+			bzero(&sa_client, sizeof(sa_client));
+			bzero(pkt_a, sizeof(*pkt_a));
+				
+			ssret = recvfrom(sock, pkt_a, sizeof(*pkt_a), 0, (struct sockaddr *)&sa_client, &sa_client_len);
+			if(ssret < 0) { err(1, "recvfrom");}
+
+			big_to_little_ack(pkt_a);
+		}
+		free(pkt_a);
+		pop_n(npop);
+	}	
+}
+
 void stop_n_wait_client(int sock, struct sockaddr_in sa_server) {
 	struct sockaddr_in sa_client;
 	struct pkt_ack *pkt_a;
 	socklen_t sa_client_len;
 	ssize_t ssret;
-	//print_queue(wq_head);
 
 	while(wq_head != NULL) {
 		pkt_a = malloc(sizeof(*pkt_a));
@@ -276,7 +353,6 @@ void stop_n_wait_client(int sock, struct sockaddr_in sa_server) {
 
 		//big endian funcs
 		big_to_little_ack(pkt_a);
-		//testa erros
 
 		while(pkt_a->sequence == wq_head->self->sequence) {
 			printf("retrasmiting\n");
@@ -291,10 +367,10 @@ void stop_n_wait_client(int sock, struct sockaddr_in sa_server) {
 
 			big_to_little_ack(pkt_a);
 		}
-
-		//big endian funcs		
+		
 		printf("poping data from queue -- data sended\n");
 		pop();
+		free(pkt_a);
 	}
 }
 
@@ -330,7 +406,7 @@ void send_file(int sock) {
 
 	fill_server_info(&sa_server, ip_buffer);
 	
-	ssret = sendto(sock, pkt_c, sizeof(*pkt_c), 0, (const struct sockaddr *)&sa_server, sizeof(sa_server));	// MSG_CONFIRM
+	ssret = sendto(sock, pkt_c, sizeof(*pkt_c), 0, (const struct sockaddr *)&sa_server, sizeof(sa_server));
 	if(ssret < 0) { err(1, "sendto");}
 	//envia pkt conexao
 
@@ -339,7 +415,8 @@ void send_file(int sock) {
 			stop_n_wait_client(sock, sa_server);
 			break;
 		case 1:
-			//go_back_n_client(sock);
+			sleep(2);
+			go_back_n_client(sock, sa_server);
 			break;
 		default:
 			printf("error\n");
@@ -378,6 +455,7 @@ int read_file() {
 		cret = memcpy(pkt_d->data, buf, fsz);
 		if(cret == NULL) { err(1, "memcpy");}
 		
+		//crc do pkt dados
 		pkt_d->sequence = i;	
 		pkt_d->len = fsz;		
 	
@@ -483,8 +561,15 @@ void server(int sock) {
 
 					break;
 				case 1:
-					printf("go back n\n");
-					//go_back_n_server(sock);
+					printf("*go back n selected\n");
+					printf("*window size: %d\n", window_size);
+					printf("*arq size: %d bytes\n", fsz);
+
+					go_back_n_server(sock, sa_server);
+					ret = write_file(fsz);
+
+					if(ret != 1) { err(1, "write_file");}
+					printf("*file wrote\n");
 					break;
 				default:
 					printf("no opt!\n");
@@ -538,12 +623,78 @@ void stop_n_wait_server(int sock, struct sockaddr_in sa_server) {
 		fill_pkt_ack_info(pkt_a, seq);
 		little_to_big_ack(pkt_a);
 
-		ssret = sendto(sock, pkt_a, sizeof(*pkt_a), 0, (const struct sockaddr *)&sa_client, sa_client_len);	// MSG_CONFIRM
+		ssret = sendto(sock, pkt_a, sizeof(*pkt_a), 0, (const struct sockaddr *)&sa_client, sa_client_len);
 		if(ssret < 0) { err(1, "sendto");}
 		
 		free(pkt_a);
 	}
 
+}
+
+void go_back_n_server(int sock, struct sockaddr_in sa_server) {
+	struct sockaddr_in sa_client;
+	struct window_queue *wq_e; 
+	struct pkt_data *pkt_d;
+	struct pkt_ack *pkt_a;
+	socklen_t sa_client_len = sizeof(sa_client);
+	ssize_t ssret;
+	int sz = DATA_SIZE;
+	int sq_e;
+	int erro = 0;
+
+	while(sz == DATA_SIZE) {
+
+		pkt_a = malloc(sizeof(*pkt_a));
+		if(pkt_a == NULL) { err(1, "malloc ack");}
+
+		wq_e = calloc(1, sizeof(*wq_e));
+		if(wq_e == NULL) { err(1, "malloc queue");}
+
+		pkt_d = malloc(sizeof(*pkt_d));
+		if(pkt_d == NULL) { err(1, "malloc data");}
+
+		bzero(&sa_client, sizeof(sa_client));
+		bzero(pkt_d, sizeof(*pkt_d));
+		
+		ssret = recvfrom(sock, pkt_d, sizeof(*pkt_d), 0, (struct sockaddr *)&sa_client, &sa_client_len);
+		if(ssret < 0) { err(1, "recvfrom");}
+
+		//big endian funcs
+		big_to_little_data(pkt_d);
+
+		sz = pkt_d->len;
+		//teste erros
+		//if(crc && size pkt == size recebido && erro == 0) {
+		
+			wq_e->self = pkt_d;
+			wq_e->next = NULL;
+			append(wq_e);
+		
+		//} else if(erro == 0){
+		//	free(pkt_d);
+		//	free(wq_e);
+		//	sq_e = pkt_d->sequence;
+		//	erro = 1;	
+		//} else {
+		//	free(pkt_d);
+		//	free(wq_e);
+		//}
+
+		if(pkt_d->sequence = window_size - 1) {	
+			if(erro == 0) {	
+				fill_pkt_ack_info(pkt_a, pkt_d->sequence + 1);
+			} else {
+				fill_pkt_ack_info(pkt_a, sq_e);
+			}
+			little_to_big_ack(pkt_a);
+
+			ssret = sendto(sock, pkt_a, sizeof(*pkt_a), 0, (const struct sockaddr *)&sa_client, sa_client_len);
+			if(ssret < 0) { err(1, "sendto");}
+			erro = 0;
+		}
+		free(pkt_a);
+	}
+	
 }
 
 int write_file(int size) {
