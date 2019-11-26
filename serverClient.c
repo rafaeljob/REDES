@@ -290,7 +290,7 @@ void go_back_n_client(int sock, struct sockaddr_in sa_server) {
 			
 			ssret = sendto(sock, vet_addr[i]->self, sizeof(*vet_addr[i]->self), 0, (const struct sockaddr *)&sa_server, sizeof(sa_server));
 			if(ssret < 0) { err(1, "sendto");}
-			sleep(1);	
+			usleep(80000);
 		}
 
 		printf("waiting ack\n");
@@ -300,13 +300,13 @@ void go_back_n_client(int sock, struct sockaddr_in sa_server) {
 		betoh_ack(pkt_a);
 
 		while(pkt_a->sequence != window_size) {
-			printf("retrasmiting\n");
+			printf("retransmitting\n");
 			for(int i = pkt_a->sequence; i < npop; i++) {
 				printf("resend %d\n", i);
 			
 				ssret = sendto(sock, vet_addr[i]->self, sizeof(*vet_addr[i]->self), 0, (const struct sockaddr *)&sa_server, sizeof(sa_server));
 				if(ssret < 0) { err(1, "sendto");}
-				sleep(1);
+				usleep(80000);
 		
 			}
 
@@ -393,7 +393,7 @@ void send_file(int sock) {
 
 	size = read_file();
 	
-	printf("type the destiny ip\n");
+	printf("type the destination ip address \n");
 	print();
 	scanf("%s", ip_buffer);
 
@@ -628,7 +628,7 @@ void stop_n_wait_server(int sock, struct sockaddr_in sa_server) {
 		checksum = crcFast((char*)pkt_d->data, pkt_d->len);
 
 		#ifdef DEBUG
-			printf("Sequence: (%d)", pkt_d->sequence);
+
 			printf("RECEIVED CRC: %X\n", pkt_d->crc);
 			printf("CALCULATED CRC: %X\n", checksum);
 
@@ -675,6 +675,8 @@ void go_back_n_server(int sock, struct sockaddr_in sa_server) {
 	int sq_e;
 	int erro = 0;
 
+	int pkt_count = 0;
+
 	crcInit();
 	while(sz == DATA_SIZE) {
 
@@ -698,35 +700,46 @@ void go_back_n_server(int sock, struct sockaddr_in sa_server) {
 
 		sz = pkt_d->len;
 
+		// Inserts error if packet_count is a multiple of ten
+		if (pkt_count % 10 == 0){ 
+			pkt_d->data[10] ^= 1UL << 4;
+		}
+
 		checksum = crcFast((char*)pkt_d->data, pkt_d->len);
 
 		#ifdef DEBUG
-		
-		printf("RECEIVED CRC: %X\n", pkt_d->crc);
-		printf("CALCULATED CRC: %X\n", checksum);
 
-		if (checksum == pkt_d->crc) {
-			printf("CRC Matches.\n");
-		}
+			printf("RECEIVED CRC: %X\n", pkt_d->crc);
+			printf("CALCULATED CRC: %X\n", checksum);
+
+			if (checksum == pkt_d->crc) {
+				printf("CRC Matches.\n");
+			} else {
+				printf("CRC Mismatch.\n");
+			}
 
 		#endif
 
 		//teste erros
-		//if(crc && size pkt == size recebido && erro == 0) {
+		if(checksum == pkt_d->crc && erro == 0) {
 		
 			wq_e->self = pkt_d;
 			wq_e->next = NULL;
 			append(wq_e);
 		
-		//} else if(erro == 0){
-		//	free(pkt_d);
-		//	free(wq_e);
-		//	sq_e = pkt_d->sequence;
-		//	erro = 1;	
-		//} else {
-		//	free(pkt_d);
-		//	free(wq_e);
-		//}
+		} else if(erro == 0){
+			
+			free(pkt_d);
+			free(wq_e);
+			sq_e = pkt_d->sequence;
+			erro = 1;	
+		
+		} else {
+			
+			free(pkt_d);
+			free(wq_e);
+		
+		}
 
 		if(pkt_d->sequence = window_size - 1) {	
 			if(erro == 0) {	
@@ -734,13 +747,16 @@ void go_back_n_server(int sock, struct sockaddr_in sa_server) {
 			} else {
 				fill_pkt_ack_info(pkt_a, sq_e);
 			}
+			
 			htobe_ack(pkt_a);
 
 			ssret = sendto(sock, pkt_a, sizeof(*pkt_a), 0, (const struct sockaddr *)&sa_client, sa_client_len);
 			if(ssret < 0) { err(1, "sendto");}
 			erro = 0;
 		}
+
 		free(pkt_a);
+		pkt_count++;
 	}
 	
 }
