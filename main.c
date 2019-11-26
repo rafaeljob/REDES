@@ -17,10 +17,7 @@
 
 void main(void)
 {
-	unsigned char  test[] = "123456789";
-	struct teste a;
-
-	sprintf(a.dado,"12345678999990909");
+	unsigned char  test[] = "batata";
 	/*
 	 * Print the check value for the selected CRC algorithm.
 	 */
@@ -35,5 +32,5 @@ void main(void)
 	 * Compute the CRC of the test message, more efficiently.
 	 */
 	crcInit();
-	printf("The crcFast() of %s is 0x%X\n", test, crcFast(&a));
+	printf("The crcFast() of %s is 0x%X\n", test, crcFast(test, strlen(test)));
 }
