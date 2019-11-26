@@ -37,6 +37,8 @@
 #define TERMINATE_STRING "@exit\n"
 #define ASCII_ESC 27
 
+#define DEBUG
+
 
 //---------------------------------------------
 //	Structs
@@ -594,6 +596,8 @@ void stop_n_wait_server(int sock, struct sockaddr_in sa_server) {
 
 	crcInit(); 
 	
+	int pkt_count = 0;
+
 	while(sz == DATA_SIZE) {
 
 		wq_e = calloc(1, sizeof(*wq_e));
@@ -616,23 +620,36 @@ void stop_n_wait_server(int sock, struct sockaddr_in sa_server) {
 
 		sz = pkt_d->len;
 
-		checksum = crcFast((char*)pkt_d->data, pkt_d->len);
-
-		printf("RECEIVED CRC: %X\n", pkt_d->crc);
-		printf("CALCULATED CRC: %X\n", checksum);
-
-		if (checksum == pkt_d->crc) {
-			printf("CRC Matches.\n");
+		// Inserts error if packet_count is a multiple of ten
+		if (pkt_count % 10 == 0){ 
+			pkt_d->data[10] ^= 1UL << 4;
 		}
 
+		checksum = crcFast((char*)pkt_d->data, pkt_d->len);
+
+		#ifdef DEBUG
+			printf("Sequence: (%d)", pkt_d->sequence);
+			printf("RECEIVED CRC: %X\n", pkt_d->crc);
+			printf("CALCULATED CRC: %X\n", checksum);
+
+			if (checksum == pkt_d->crc) {
+				printf("CRC Matches.\n");
+			} else {
+				printf("CRC Mismatch.\n");
+			}
+
+		#endif
+
 		//teste erros
-		//if(crc && size pkt == size recebido) {
-		seq = 1;
+		if(checksum == pkt_d->crc) {
+			seq = 1;
+			wq_e->self = pkt_d;
+			wq_e->next = NULL;
+			append(wq_e);
+		} else { 
+			seq = 0;
+		}
 		
-		wq_e->self = pkt_d;
-		wq_e->next = NULL;
-		append(wq_e);
-		//} else { seq = 0;}
 		fill_pkt_ack_info(pkt_a, seq);
 		htobe_ack(pkt_a);
 
@@ -640,6 +657,8 @@ void stop_n_wait_server(int sock, struct sockaddr_in sa_server) {
 		if(ssret < 0) { err(1, "sendto");}
 		
 		free(pkt_a);
+
+		pkt_count++;
 	}
 
 }
@@ -681,12 +700,16 @@ void go_back_n_server(int sock, struct sockaddr_in sa_server) {
 
 		checksum = crcFast((char*)pkt_d->data, pkt_d->len);
 
+		#ifdef DEBUG
+		
 		printf("RECEIVED CRC: %X\n", pkt_d->crc);
 		printf("CALCULATED CRC: %X\n", checksum);
 
 		if (checksum == pkt_d->crc) {
 			printf("CRC Matches.\n");
 		}
+
+		#endif
 
 		//teste erros
 		//if(crc && size pkt == size recebido && erro == 0) {
