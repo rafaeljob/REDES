@@ -83,7 +83,7 @@ static unsigned long reflect(unsigned long data, unsigned char nBits)
  * Returns:		The CRC of the message.
  *
  *********************************************************************/
-crc crcSlow(unsigned char const message[], int nBytes)
+crc crcSlow(unsigned char const message[], uint32_t nBytes)
 {
     crc            remainder = INITIAL_REMAINDER;
 	int            byte;
@@ -138,7 +138,7 @@ crc  crcTable[256];
 void crcInit(void)
 {
     crc			   remainder;
-	int			   dividend;
+	uint32_t			   dividend;
 	unsigned char  bit;
 
 
@@ -182,26 +182,19 @@ void crcInit(void)
  * Returns:		The CRC of the message.
  *
  *********************************************************************/
-crc crcFast(struct teste *a)
+crc crcFast(unsigned char *message, uint32_t nBytes)
 {
     crc	           remainder = INITIAL_REMAINDER;
     unsigned char  data;
-	int            byte, nBytes;
-	unsigned char const *message;
-	struct teste *teste = a;
-	
-	printf("dentro da funcao: %s\n", teste->dado);
-	message = malloc(sizeof(teste));
-	message = teste->dado;
-	nBytes = strlen(message);
-	printf("tamanho %d\n", nBytes);
-	printf("dentro da funcao: %s\n", message);
+	uint32_t            byte;
+
     /*
      * Divide the message by the polynomial, a byte at a time.
      */
-    for (byte = 0; byte < nBytes; ++byte){
+    for (byte = 0; byte < nBytes; ++byte)
+    {
         data = REFLECT_DATA(message[byte]) ^ (remainder >> (WIDTH - 8));
-  		remainder = crcTable[data] ^ (remainder << 8);
+        remainder = crcTable[data] ^ (remainder << 8);
     }
 
     /*

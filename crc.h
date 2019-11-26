@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 #ifndef _crc_h
 #define _crc_h
@@ -54,7 +55,7 @@ typedef unsigned short  crc;
 
 #elif defined(CRC32)
 
-typedef unsigned long  crc;
+typedef uint32_t crc;
 
 #define CRC_NAME			"CRC-32"
 #define POLYNOMIAL			0x04C11DB7
@@ -70,15 +71,8 @@ typedef unsigned long  crc;
 
 #endif
 
-struct teste
-{
-	unsigned char dado[50];
-};
-
 void  crcInit(void);
-crc   crcSlow(unsigned char const message[], int nBytes);
-crc   crcFast(struct teste *a);
-//crc   crcFast(struct teste *a);
-
+crc   crcSlow(unsigned char const message[], uint32_t nBytes);
+crc   crcFast(unsigned char *message, uint32_t nBytes);
 
 #endif /* _crc_h */
