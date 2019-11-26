@@ -1,5 +1,5 @@
 //	HEADER
-//	NOMES: Rafael Basso, Eric Friederich
+//	NOMES: Rafael Basso, Eric Friederich, Gabriel Radzki
 //	gcc serverClient.c -o sc
 //	./sc -c
 //	./sc -s 
@@ -20,6 +20,8 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+
+#include "crc.h"
 
 //---------------------------------------------
 //	Defines
@@ -325,6 +327,7 @@ void stop_n_wait_client(int sock, struct sockaddr_in sa_server) {
 	socklen_t sa_client_len;
 	ssize_t ssret;
 
+	crcInit();
 	while(wq_head != NULL) {
 		pkt_a = malloc(sizeof(*pkt_a));
 		if (pkt_a == NULL) { err(1, "malloc ack");}
@@ -334,6 +337,7 @@ void stop_n_wait_client(int sock, struct sockaddr_in sa_server) {
 		
 		htobe_data(wq_head->self);
 		printf("send\n");
+
 		ssret = sendto(sock, wq_head->self, sizeof(*wq_head->self), 0, (const struct sockaddr *)&sa_server, sizeof(sa_server));
 		if(ssret < 0) { err(1, "sendto");}
 		
@@ -345,7 +349,7 @@ void stop_n_wait_client(int sock, struct sockaddr_in sa_server) {
 		betoh_ack(pkt_a);
 
 		while(pkt_a->sequence == wq_head->self->sequence) {
-			printf("retrasmiting\n");
+			printf("retransmitting\n");
 			ssret = sendto(sock, wq_head->self, sizeof(*wq_head->self), 0, (const struct sockaddr *)&sa_server, sizeof(sa_server));
 			if(ssret < 0) { err(1, "sendto");}
 			
@@ -358,7 +362,7 @@ void stop_n_wait_client(int sock, struct sockaddr_in sa_server) {
 			betoh_ack(pkt_a);
 		}
 		
-		printf("poping data from queue -- data sended\n");
+		printf("poping data from queue -- data sent\n");
 		pop();
 		free(pkt_a);
 	}
@@ -414,6 +418,8 @@ void send_file(int sock) {
 	}
 }
 
+
+
 int read_file() {
 	struct window_queue *wq_e;
 	struct pkt_data *pkt_d;
@@ -433,6 +439,7 @@ int read_file() {
 	if(fp < 0) { err(1, "fopen");}	
 
 	printf("reading file (%s)\n", file);
+	crcInit();
 	while(1) {
 		fsz = fread(buf, sizeof(char), DATA_SIZE, (FILE*)fp);
 		
@@ -445,9 +452,12 @@ int read_file() {
 		cret = memcpy(pkt_d->data, buf, fsz);
 		if(cret == NULL) { err(1, "memcpy");}
 		
-		//crc do pkt dados
 		pkt_d->sequence = i;	
-		pkt_d->len = fsz;		
+		pkt_d->len = fsz;
+
+		pkt_d->crc = crcFast((char*)pkt_d->data, pkt_d->len);
+
+		//printf("CRC32: %X\n", pkt_d->crc);
 	
 		wq_e->self = pkt_d;
 		wq_e->next = NULL;
@@ -573,13 +583,16 @@ void server(int sock) {
 
 void stop_n_wait_server(int sock, struct sockaddr_in sa_server) {
 	struct sockaddr_in sa_client;
-	struct window_queue *wq_e; 
+	struct window_queue *wq_e;
+	uint32_t checksum;
 	struct pkt_data *pkt_d;
 	struct pkt_ack *pkt_a;
 	socklen_t sa_client_len = sizeof(sa_client);
 	ssize_t ssret;
 	int sz = DATA_SIZE;
 	int seq;
+
+	crcInit(); 
 	
 	while(sz == DATA_SIZE) {
 
@@ -602,6 +615,16 @@ void stop_n_wait_server(int sock, struct sockaddr_in sa_server) {
 		betoh_data(pkt_d);
 
 		sz = pkt_d->len;
+
+		checksum = crcFast((char*)pkt_d->data, pkt_d->len);
+
+		printf("RECEIVED CRC: %X\n", pkt_d->crc);
+		printf("CALCULATED CRC: %X\n", checksum);
+
+		if (checksum == pkt_d->crc) {
+			printf("CRC Matches.\n");
+		}
+
 		//teste erros
 		//if(crc && size pkt == size recebido) {
 		seq = 1;
@@ -623,6 +646,7 @@ void stop_n_wait_server(int sock, struct sockaddr_in sa_server) {
 
 void go_back_n_server(int sock, struct sockaddr_in sa_server) {
 	struct sockaddr_in sa_client;
+	uint32_t checksum;
 	struct window_queue *wq_e; 
 	struct pkt_data *pkt_d;
 	struct pkt_ack *pkt_a;
@@ -632,6 +656,7 @@ void go_back_n_server(int sock, struct sockaddr_in sa_server) {
 	int sq_e;
 	int erro = 0;
 
+	crcInit();
 	while(sz == DATA_SIZE) {
 
 		pkt_a = malloc(sizeof(*pkt_a));
@@ -653,6 +678,16 @@ void go_back_n_server(int sock, struct sockaddr_in sa_server) {
 		betoh_data(pkt_d);
 
 		sz = pkt_d->len;
+
+		checksum = crcFast((char*)pkt_d->data, pkt_d->len);
+
+		printf("RECEIVED CRC: %X\n", pkt_d->crc);
+		printf("CALCULATED CRC: %X\n", checksum);
+
+		if (checksum == pkt_d->crc) {
+			printf("CRC Matches.\n");
+		}
+
 		//teste erros
 		//if(crc && size pkt == size recebido && erro == 0) {
 		
