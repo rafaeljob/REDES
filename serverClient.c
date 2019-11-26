@@ -700,10 +700,10 @@ void go_back_n_server(int sock, struct sockaddr_in sa_server) {
 
 		sz = pkt_d->len;
 
-		// Inserts error if packet_count is a multiple of ten
-		if (pkt_count % 10 == 0){ 
-			pkt_d->data[10] ^= 1UL << 4;
-		}
+		// // Inserts error if packet_count is a multiple of ten (TODO)
+		// if (pkt_count % 10 == 0){ 
+		// 	pkt_d->data[10] ^= 1UL << 4;
+		// }
 
 		checksum = crcFast((char*)pkt_d->data, pkt_d->len);
 
