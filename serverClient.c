@@ -223,11 +223,11 @@ void htobe_ack(struct pkt_ack *pkt) {
 void fill_server_info(struct sockaddr_in *sa_server, char *ip_buffer) {
 	sa_server->sin_family = AF_INET;
 	sa_server->sin_port = htons(SOCK_PORT);
-	sa_server->sin_addr.s_addr = INADDR_ANY;//inet_addr(ip_buffer); //INADDR_ANY;
+	sa_server->sin_addr.s_addr = inet_addr(ip_buffer);
 }
 
 void fill_pkt_connection_info(struct pkt_cnx *pkt_c, int flux, int file_size, char *ip_buffer) {
-	pkt_c->ipd = INADDR_ANY; //inet_addr(ip_buffer);
+	pkt_c->ipd = inet_addr(ip_buffer);
 	pkt_c->ipo = IP_CLIENT;
 	pkt_c->type = 2;
 	pkt_c->sequence = 0;
