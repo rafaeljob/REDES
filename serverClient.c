@@ -122,7 +122,7 @@ void pop() {
 //	Print
 //---------------------------------------------
 
-void print_pkt_conexion(struct pkt_cnx *pkt_c) {
+void print_pkt_connection(struct pkt_cnx *pkt_c) {
 	printf("PKT C: \n");
 	printf("IP SERVER: %d\n", pkt_c->ipd);
 	printf("IP CLIENT: %d\n", pkt_c->ipo);
@@ -174,21 +174,21 @@ void print_clear() {
 //	Big-Little Endian
 //---------------------------------------------
 
-void big_to_little_data(struct pkt_data *pkt) {
+void betoh_data(struct pkt_data *pkt) {
 	pkt->ipd = be32toh(pkt->ipd);	
 	pkt->ipo = be32toh(pkt->ipo);
 	pkt->len = be16toh(pkt->len);
 	pkt->crc = be32toh(pkt->crc);
 }
 
-void little_to_big_data(struct pkt_data *pkt) {
+void htobe_data(struct pkt_data *pkt) {
 	pkt->ipd = htobe32(pkt->ipd);	
 	pkt->ipo = htobe32(pkt->ipo);
 	pkt->len = htobe16(pkt->len);
 	pkt->crc = htobe32(pkt->crc);
 }
 
-void big_to_little_cnx(struct pkt_cnx *pkt) {
+void betoh_conn(struct pkt_cnx *pkt) {
 	pkt->ipd = be32toh(pkt->ipd);	
 	pkt->ipo = be32toh(pkt->ipo);
 	pkt->len = be16toh(pkt->len);
@@ -197,7 +197,7 @@ void big_to_little_cnx(struct pkt_cnx *pkt) {
 	pkt->size_arq = be32toh(pkt->size_arq);
 }
 
-void little_to_big_cnx(struct pkt_cnx *pkt) {
+void htobe_conn(struct pkt_cnx *pkt) {
 	pkt->ipd = htobe32(pkt->ipd);	
 	pkt->ipo = htobe32(pkt->ipo);
 	pkt->len = htobe16(pkt->len);
@@ -206,12 +206,12 @@ void little_to_big_cnx(struct pkt_cnx *pkt) {
 	pkt->size_arq = htobe32(pkt->size_arq);
 }
 
-void big_to_little_ack(struct pkt_ack *pkt) {
+void betoh_ack(struct pkt_ack *pkt) {
 	pkt->ipd = be32toh(pkt->ipd);	
 	pkt->ipo = be32toh(pkt->ipo);
 }
 
-void little_to_big_ack(struct pkt_ack *pkt) {
+void htobe_ack(struct pkt_ack *pkt) {
 	pkt->ipd = htobe32(pkt->ipd);	
 	pkt->ipo = htobe32(pkt->ipo);
 }
@@ -220,22 +220,13 @@ void little_to_big_ack(struct pkt_ack *pkt) {
 //	Client
 //---------------------------------------------
 
-int end_of_exec(const char *buf) {
-	if(!strcmp(buf, TERMINATE_STRING)) {
-		printf("exit\n");
-		return 1;
-	} else {
-		return 0;
-	}
-}
-
 void fill_server_info(struct sockaddr_in *sa_server, char *ip_buffer) {
 	sa_server->sin_family = AF_INET;
 	sa_server->sin_port = htons(SOCK_PORT);
 	sa_server->sin_addr.s_addr = INADDR_ANY;//inet_addr(ip_buffer); //INADDR_ANY;
 }
 
-void fill_pkt_conexion_info(struct pkt_cnx *pkt_c, int flux, int file_size, char *ip_buffer) {
+void fill_pkt_connection_info(struct pkt_cnx *pkt_c, int flux, int file_size, char *ip_buffer) {
 	pkt_c->ipd = INADDR_ANY; //inet_addr(ip_buffer);
 	pkt_c->ipo = IP_CLIENT;
 	pkt_c->type = 2;
@@ -290,7 +281,7 @@ void go_back_n_client(int sock, struct sockaddr_in sa_server) {
 		bzero(pkt_a, sizeof(*pkt_a));
 		
 		for(int i = 0; i < npop; i++) {
-			little_to_big_data(vet_addr[i]->self);
+			htobe_data(vet_addr[i]->self);
 			printf("send %d\n", i);
 			
 			ssret = sendto(sock, vet_addr[i]->self, sizeof(*vet_addr[i]->self), 0, (const struct sockaddr *)&sa_server, sizeof(sa_server));
@@ -302,7 +293,7 @@ void go_back_n_client(int sock, struct sockaddr_in sa_server) {
 		ssret = recvfrom(sock, pkt_a, sizeof(*pkt_a), 0, (struct sockaddr *)&sa_client, &sa_client_len);
 		if(ssret < 0) { err(1, "recvfrom");}
 
-		big_to_little_ack(pkt_a);
+		betoh_ack(pkt_a);
 
 		while(pkt_a->sequence != window_size) {
 			printf("retrasmiting\n");
@@ -321,7 +312,7 @@ void go_back_n_client(int sock, struct sockaddr_in sa_server) {
 			ssret = recvfrom(sock, pkt_a, sizeof(*pkt_a), 0, (struct sockaddr *)&sa_client, &sa_client_len);
 			if(ssret < 0) { err(1, "recvfrom");}
 
-			big_to_little_ack(pkt_a);
+			betoh_ack(pkt_a);
 		}
 		free(pkt_a);
 		pop_n(npop);
@@ -341,9 +332,8 @@ void stop_n_wait_client(int sock, struct sockaddr_in sa_server) {
 		bzero(&sa_client, sizeof(sa_client));
 		bzero(pkt_a, sizeof(*pkt_a));
 		
-		little_to_big_data(wq_head->self);
+		htobe_data(wq_head->self);
 		printf("send\n");
-
 		ssret = sendto(sock, wq_head->self, sizeof(*wq_head->self), 0, (const struct sockaddr *)&sa_server, sizeof(sa_server));
 		if(ssret < 0) { err(1, "sendto");}
 		
@@ -352,7 +342,7 @@ void stop_n_wait_client(int sock, struct sockaddr_in sa_server) {
 		if(ssret < 0) { err(1, "recvfrom");}
 
 		//big endian funcs
-		big_to_little_ack(pkt_a);
+		betoh_ack(pkt_a);
 
 		while(pkt_a->sequence == wq_head->self->sequence) {
 			printf("retrasmiting\n");
@@ -365,7 +355,7 @@ void stop_n_wait_client(int sock, struct sockaddr_in sa_server) {
 			ssret = recvfrom(sock, pkt_a, sizeof(*pkt_a), 0, (struct sockaddr *)&sa_client, &sa_client_len);
 			if(ssret < 0) { err(1, "recvfrom");}
 
-			big_to_little_ack(pkt_a);
+			betoh_ack(pkt_a);
 		}
 		
 		printf("poping data from queue -- data sended\n");
@@ -401,8 +391,8 @@ void send_file(int sock) {
 	print();
 	scanf("%s", ip_buffer);
 
-	fill_pkt_conexion_info(pkt_c, tec, size, ip_buffer);
-	little_to_big_cnx(pkt_c);
+	fill_pkt_connection_info(pkt_c, tec, size, ip_buffer);
+	htobe_conn(pkt_c);
 
 	fill_server_info(&sa_server, ip_buffer);
 	
@@ -526,20 +516,20 @@ void server(int sock) {
 	if (pkt_c == NULL) { err(1, "malloc");}
 
 	while(1) {
-		printf("waiting conexion package...\n");
+		printf("waiting connection packet...\n");
 		bzero(&sa_client, sizeof(sa_client));
 		bzero(pkt_c, sizeof(*pkt_c));
 
 		ssret = recvfrom(sock, pkt_c, sizeof(*pkt_c), 0, (struct sockaddr *)&sa_client, &sa_client_len);
 		if(ssret < 0) { err(1, "recvfrom cnx");}
 
-		big_to_little_cnx(pkt_c);
+		betoh_conn(pkt_c);
 
-		printf("package received\n");
+		printf("packet received\n");
 		if(pkt_c->type != 2) {
-			printf("diferent package expected\n");
+			printf("different packet expected\n");
 		} else {
-			printf("conexion package received\n");
+			printf("connection packet received\n");
 
 			//set infos do pkt
 			fsz = pkt_c->size_arq;
@@ -609,7 +599,7 @@ void stop_n_wait_server(int sock, struct sockaddr_in sa_server) {
 		if(ssret < 0) { err(1, "recvfrom");}
 
 		//big endian funcs
-		big_to_little_data(pkt_d);
+		betoh_data(pkt_d);
 
 		sz = pkt_d->len;
 		//teste erros
@@ -621,7 +611,7 @@ void stop_n_wait_server(int sock, struct sockaddr_in sa_server) {
 		append(wq_e);
 		//} else { seq = 0;}
 		fill_pkt_ack_info(pkt_a, seq);
-		little_to_big_ack(pkt_a);
+		htobe_ack(pkt_a);
 
 		ssret = sendto(sock, pkt_a, sizeof(*pkt_a), 0, (const struct sockaddr *)&sa_client, sa_client_len);
 		if(ssret < 0) { err(1, "sendto");}
@@ -660,7 +650,7 @@ void go_back_n_server(int sock, struct sockaddr_in sa_server) {
 		if(ssret < 0) { err(1, "recvfrom");}
 
 		//big endian funcs
-		big_to_little_data(pkt_d);
+		betoh_data(pkt_d);
 
 		sz = pkt_d->len;
 		//teste erros
@@ -686,7 +676,7 @@ void go_back_n_server(int sock, struct sockaddr_in sa_server) {
 			} else {
 				fill_pkt_ack_info(pkt_a, sq_e);
 			}
-			little_to_big_ack(pkt_a);
+			htobe_ack(pkt_a);
 
 			ssret = sendto(sock, pkt_a, sizeof(*pkt_a), 0, (const struct sockaddr *)&sa_client, sa_client_len);
 			if(ssret < 0) { err(1, "sendto");}
