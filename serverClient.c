@@ -290,7 +290,7 @@ void go_back_n_client(int sock, struct sockaddr_in sa_server) {
 			
 			ssret = sendto(sock, vet_addr[i]->self, sizeof(*vet_addr[i]->self), 0, (const struct sockaddr *)&sa_server, sizeof(sa_server));
 			if(ssret < 0) { err(1, "sendto");}
-			usleep(80000);
+			//usleep(80000);
 		}
 
 		printf("waiting ack\n");
@@ -306,7 +306,7 @@ void go_back_n_client(int sock, struct sockaddr_in sa_server) {
 			
 				ssret = sendto(sock, vet_addr[i]->self, sizeof(*vet_addr[i]->self), 0, (const struct sockaddr *)&sa_server, sizeof(sa_server));
 				if(ssret < 0) { err(1, "sendto");}
-				usleep(80000);
+				//usleep(80000);
 		
 			}
 
@@ -555,7 +555,7 @@ void server(int sock) {
 					printf("*window size: %d\n", window_size);
 					printf("*arq size: %d bytes\n", fsz);
 
-					stop_n_wait_server(sock, sa_server);
+					stop_n_wait_server(sock, sa_server, fsz);
 					ret = write_file(fsz);
 
 					if(ret != 1) { err(1, "write_file");}
@@ -567,7 +567,7 @@ void server(int sock) {
 					printf("*window size: %d\n", window_size);
 					printf("*arq size: %d bytes\n", fsz);
 
-					go_back_n_server(sock, sa_server);
+					go_back_n_server(sock, sa_server, fsz);
 					ret = write_file(fsz);
 
 					if(ret != 1) { err(1, "write_file");}
@@ -583,7 +583,7 @@ void server(int sock) {
 	
 }
 
-void stop_n_wait_server(int sock, struct sockaddr_in sa_server) {
+void stop_n_wait_server(int sock, struct sockaddr_in sa_server, int fsz) {
 	struct sockaddr_in sa_client;
 	struct window_queue *wq_e;
 	uint32_t checksum;
@@ -591,14 +591,14 @@ void stop_n_wait_server(int sock, struct sockaddr_in sa_server) {
 	struct pkt_ack *pkt_a;
 	socklen_t sa_client_len = sizeof(sa_client);
 	ssize_t ssret;
-	int sz = DATA_SIZE;
+	int sz = 0;
 	int seq;
 
 	crcInit(); 
 	
 	int pkt_count = 0;
 
-	while(sz == DATA_SIZE) {
+	while(fsz - sz > 0) {
 
 		wq_e = calloc(1, sizeof(*wq_e));
 		if(wq_e == NULL) { err(1, "malloc queue");}
@@ -617,8 +617,6 @@ void stop_n_wait_server(int sock, struct sockaddr_in sa_server) {
 
 		//big endian funcs
 		betoh_data(pkt_d);
-
-		sz = pkt_d->len;
 
 		// Inserts error if packet_count is a multiple of ten
 		if (pkt_count % 10 == 0){ 
@@ -642,6 +640,7 @@ void stop_n_wait_server(int sock, struct sockaddr_in sa_server) {
 
 		//teste erros
 		if(checksum == pkt_d->crc) {
+			sz = sz + pkt_d->len;
 			seq = 1;
 			wq_e->self = pkt_d;
 			wq_e->next = NULL;
@@ -663,7 +662,7 @@ void stop_n_wait_server(int sock, struct sockaddr_in sa_server) {
 
 }
 
-void go_back_n_server(int sock, struct sockaddr_in sa_server) {
+void go_back_n_server(int sock, struct sockaddr_in sa_server, int fsz) {
 	struct sockaddr_in sa_client;
 	uint32_t checksum;
 	struct window_queue *wq_e; 
@@ -671,14 +670,14 @@ void go_back_n_server(int sock, struct sockaddr_in sa_server) {
 	struct pkt_ack *pkt_a;
 	socklen_t sa_client_len = sizeof(sa_client);
 	ssize_t ssret;
-	int sz = DATA_SIZE;
+	int sz = 0;
 	int sq_e;
 	int erro = 0;
 
 	int pkt_count = 0;
 
 	crcInit();
-	while(sz == DATA_SIZE) {
+	while(fsz - sz > 0) {
 
 		pkt_a = malloc(sizeof(*pkt_a));
 		if(pkt_a == NULL) { err(1, "malloc ack");}
@@ -698,12 +697,12 @@ void go_back_n_server(int sock, struct sockaddr_in sa_server) {
 		//big endian funcs
 		betoh_data(pkt_d);
 
-		sz = pkt_d->len;
+		//sz = pkt_d->len;
 
 		// // Inserts error if packet_count is a multiple of ten (TODO)
-		// if (pkt_count % 10 == 0){ 
-		// 	pkt_d->data[10] ^= 1UL << 4;
-		// }
+		if (pkt_count % 21 == 0){ 
+		 	pkt_d->data[10] ^= 1UL << 4;
+		 }
 
 		checksum = crcFast((char*)pkt_d->data, pkt_d->len);
 
@@ -722,7 +721,7 @@ void go_back_n_server(int sock, struct sockaddr_in sa_server) {
 
 		//teste erros
 		if(checksum == pkt_d->crc && erro == 0) {
-		
+			sz = sz + pkt_d->len;
 			wq_e->self = pkt_d;
 			wq_e->next = NULL;
 			append(wq_e);
@@ -733,7 +732,7 @@ void go_back_n_server(int sock, struct sockaddr_in sa_server) {
 			free(wq_e);
 			sq_e = pkt_d->sequence;
 			erro = 1;	
-		
+			pkt_count = 0;
 		} else {
 			
 			free(pkt_d);
@@ -741,9 +740,13 @@ void go_back_n_server(int sock, struct sockaddr_in sa_server) {
 		
 		}
 
-		if(pkt_d->sequence = window_size - 1) {	
+		if((pkt_d->sequence == window_size - 1) || (fsz - sz == 0)) {	
 			if(erro == 0) {	
-				fill_pkt_ack_info(pkt_a, pkt_d->sequence + 1);
+				if(fsz - sz == 0) {
+					fill_pkt_ack_info(pkt_a, window_size);
+				} else {
+					fill_pkt_ack_info(pkt_a, pkt_d->sequence + 1);
+				}
 			} else {
 				fill_pkt_ack_info(pkt_a, sq_e);
 			}
@@ -754,7 +757,7 @@ void go_back_n_server(int sock, struct sockaddr_in sa_server) {
 			if(ssret < 0) { err(1, "sendto");}
 			erro = 0;
 		}
-
+		
 		free(pkt_a);
 		pkt_count++;
 	}
@@ -782,7 +785,6 @@ int write_file(int size) {
 	}
 
 	fclose(fp);
-
 	if((size - file_sz) == 0) { return 1;}	
 	return 0;
 }
